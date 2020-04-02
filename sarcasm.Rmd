@@ -1,0 +1,301 @@
+---
+title: "sarcasm"
+author: "David Kaiser"
+date: "3/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = NA, echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r 1-load-data}
+set.seed(123) 
+setwd("~/Desktop/DePaul_DataScience_Credential/Data_Fundamentals")
+original_data <- read.csv("train-balanced-sarcasm.csv", header = T)
+#View(original_data)
+```
+
+```{r load-libs}
+library(text2vec)
+library(data.table)
+library(magrittr)
+library(tm)
+```
+
+```{r set-params}
+#Set the high level parameters
+sample_percent = .05
+train_percent = .75
+```
+
+
+```{r prep-data}
+original_data_size = nrow(original_data)
+sample_size = round(original_data_size * sample_percent)
+#create a smaller sample of the original data set 
+data <- original_data[sample(nrow(original_data), sample_size), ]
+#confirm that the smaller sample is balanced, like the original set, which is 50/50
+print(paste("percent of items which are positive =", round(sum(data$label == 1) / nrow(data), 3)*100))
+#sum(data$label == 1) / nrow(data)
+
+#dim(data)
+#create an id column for use in word2vec
+data$id = 1:dim(data)[1]
+#make sure it's character, otherwise it blows up
+data$comment <- as.character(data$comment)  
+data("data") # ??
+setDT(data)
+setkey(data, id)
+set.seed(123)
+all_ids = data$id
+#create a sample set to train the corpus
+train_ids = sample(all_ids, (sample_size * train_percent))
+#hold back a portion to test the model later
+test_ids = setdiff(all_ids, train_ids)
+train = data[J(train_ids)]
+test = data[J(test_ids)]
+#confirm sample sizes for train and test
+print(paste("Size of training corpus: ", dim(train)[1]))
+print(paste("Size of test corpus: ", dim(test)[1]))
+#dim(train)
+#dim(test)
+```
+
+```{r vocab-and-vectors-1}
+prep_fun = tolower
+tok_fun = word_tokenizer
+
+train_tokens = tok_fun(prep_fun(train$comment))
+  
+it_train = itoken(train_tokens, ids = train$id, progressbar = FALSE)
+
+vocab = create_vocabulary(it_train)
+
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+#dim(dtm_train)
+```
+
+```{r create-model-1}
+library(glmnet)
+glmnet_classifier1 = cv.glmnet(x = dtm_train, y = train[['label']], 
+                              family = 'binomial', 
+                              # L1 penalty
+                              alpha = 1,
+                              # interested in the area under ROC curve
+                              type.measure = "auc",
+                              # high value is less accurate, but has faster training
+                              thresh = 1e-3,
+                              # again lower number of iterations for faster training
+                              maxit = 1e3)
+```
+
+```{r plot-and-review-1}
+plot(glmnet_classifier1)
+print(paste("max training AUC =", round(max(glmnet_classifier1$cvm), 4)))
+```
+
+```{r test-classifier-1}
+it_test = tok_fun(prep_fun(test$comment))
+it_test = itoken(it_test, ids = test$id, progressbar = FALSE)
+         
+dtm_test = create_dtm(it_test, vectorizer)
+
+preds = predict(glmnet_classifier1, dtm_test, type = 'response')[,1]
+x = glmnet:::auc(test$label, preds)
+print(paste("max test AUC =", round(x, 6)))
+```
+
+```{r vocab-and-vectors-2}
+prep_fun = removePunctuation
+tok_fun = word_tokenizer
+
+train_tokens = tok_fun(prep_fun(train$comment))
+  
+it_train = itoken(train_tokens, ids = train$id, progressbar = FALSE)
+
+vocab = create_vocabulary(it_train)
+
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+#dim(dtm_train)
+```
+
+```{r create-model-2}
+library(glmnet)
+glmnet_classifier2 = cv.glmnet(x = dtm_train, y = train[['label']], 
+                              family = 'binomial', 
+                              # L1 penalty
+                              alpha = 1,
+                              # interested in the area under ROC curve
+                              type.measure = "auc",
+                              # high value is less accurate, but has faster training
+                              thresh = 1e-3,
+                              # again lower number of iterations for faster training
+                              maxit = 1e3)
+```
+
+```{r plot-and-review-2}
+plot(glmnet_classifier2)
+print(paste("max training AUC =", round(max(glmnet_classifier2$cvm), 4)))
+```
+
+
+```{r test-classifier-2}
+it_test = tok_fun(prep_fun(test$comment))
+it_test = itoken(it_test, ids = test$id, progressbar = FALSE)
+         
+dtm_test = create_dtm(it_test, vectorizer)
+
+preds = predict(glmnet_classifier2, dtm_test, type = 'response')[,1]
+
+x = glmnet:::auc(test$label, preds)
+print(paste("max test AUC =", round(x, 6)))
+```
+
+
+```{r vocab-and-vectors-3}
+#This one is the best!!
+prep_fun = removeNumbers
+tok_fun = word_tokenizer
+
+train_tokens = tok_fun(prep_fun(train$comment))
+  
+it_train = itoken(train_tokens, ids = train$id, progressbar = FALSE)
+
+vocab = create_vocabulary(it_train)
+
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+dim(dtm_train)
+```
+
+```{r create-model-3}
+library(glmnet)
+glmnet_classifier3 = cv.glmnet(x = dtm_train, y = train[['label']], 
+                              family = 'binomial', 
+                              # L1 penalty
+                              alpha = 1,
+                              # interested in the area under ROC curve
+                              type.measure = "auc",
+                              # high value is less accurate, but has faster training
+                              thresh = 1e-3,
+                              # again lower number of iterations for faster training
+                              maxit = 1e3)
+```
+
+```{r plot-and-review-3}
+plot(glmnet_classifier3)
+print(paste("max training AUC =", round(max(glmnet_classifier3$cvm), 4)))
+```
+
+```{r test-classifier-3}
+it_test = tok_fun(prep_fun(test$comment))
+it_test = itoken(it_test, ids = test$id, progressbar = FALSE)
+         
+dtm_test = create_dtm(it_test, vectorizer)
+
+preds = predict(glmnet_classifier3, dtm_test, type = 'response')[,1]
+
+x = glmnet:::auc(test$label, preds)
+print(paste("max test AUC =", round(x, 6)))
+
+```
+
+```{r vocab-and-vectors-4}
+#prep_fun = removeWords
+tok_fun = word_tokenizer
+noStopWords = removeWords(train$comment, stopwords("english"))
+train_tokens = tok_fun(noStopWords)
+  
+it_train = itoken(train_tokens, ids = train$id, progressbar = FALSE)
+
+vocab = create_vocabulary(it_train)
+
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+```
+
+```{r create-model-4}
+library(glmnet)
+glmnet_classifier4 = cv.glmnet(x = dtm_train, y = train[['label']], 
+                              family = 'binomial', 
+                              # L1 penalty
+                              alpha = 1,
+                              # interested in the area under ROC curve
+                              type.measure = "auc",
+                              # high value is less accurate, but has faster training
+                              thresh = 1e-3,
+                              # again lower number of iterations for faster training
+                              maxit = 1e3)
+```
+
+```{r plot-and-review-4}
+plot(glmnet_classifier4)
+print(paste("max training AUC =", round(max(glmnet_classifier4$cvm), 4)))
+```
+
+
+```{r test-classifier-4}
+noStopWordsTest = removeWords(test$comment, stopwords("english"))
+it_test = tok_fun(noStopWordsTest)
+it_test = itoken(it_test, ids = test$id, progressbar = FALSE)
+         
+dtm_test = create_dtm(it_test, vectorizer)
+
+preds = predict(glmnet_classifier4, dtm_test, type = 'response')[,1]
+
+x = glmnet:::auc(test$label, preds)
+print(paste("max test AUC =", round(x, 6)))
+```
+
+
+
+
+```{r vocab-and-vectors-5}
+doItAll <- function(text){
+  return (tolower(removePunctuation(stripWhitespace(removeWords(text,stopwords("english"))))))
+}
+prep_fun = doItAll
+tok_fun = word_tokenizer
+
+train_tokens = tok_fun(prep_fun(train$comment))
+  
+it_train = itoken(train_tokens, ids = train$id, progressbar = FALSE)
+
+vocab = create_vocabulary(it_train)
+
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+```
+
+```{r create-model-5}
+library(glmnet)
+glmnet_classifier5 = cv.glmnet(x = dtm_train, y = train[['label']], 
+                              family = 'binomial', 
+                              # L1 penalty
+                              alpha = 1,
+                              # interested in the area under ROC curve
+                              type.measure = "auc",
+                              # high value is less accurate, but has faster training
+                              thresh = 1e-3,
+                              # again lower number of iterations for faster training
+                              maxit = 1e3)
+```
+
+```{r plot-and-review-5}
+plot(glmnet_classifier5)
+print(paste("max training AUC =", round(max(glmnet_classifier5$cvm), 4)))
+```
+
+```{r test-classifier-5}
+it_test = tok_fun(prep_fun(test$comment))
+it_test = itoken(it_test, ids = test$id, progressbar = FALSE)
+         
+dtm_test = create_dtm(it_test, vectorizer)
+
+preds = predict(glmnet_classifier5, dtm_test, type = 'response')[,1]
+x = glmnet:::auc(test$label, preds)
+print(paste("max test AUC =", round(x, 6)))
+```
